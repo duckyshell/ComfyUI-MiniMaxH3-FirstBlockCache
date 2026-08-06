@@ -1,0 +1,5 @@
+# Development and benchmark material stays on GitHub but is not needed at runtime.
+.github/
+benchmark/
+tests/
+.gitignore

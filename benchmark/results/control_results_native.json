@@ -1,0 +1,54 @@
+[
+  {
+    "run": "native_01_baseline_cold",
+    "config": "baseline",
+    "backend": "native",
+    "temperature": "cold",
+    "prompt_id": "435ba8d0-b7e7-4d3d-acaf-badef40e2d54",
+    "wall_seconds": 100.808,
+    "cache_summary": null,
+    "files": [
+      "native_01_baseline_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:49:49.42891+02:00"
+  },
+  {
+    "run": "native_02_baseline_warm",
+    "config": "baseline",
+    "backend": "native",
+    "temperature": "warm",
+    "prompt_id": "a526bd7e-bcb9-41f1-9bee-4bc24d632f1d",
+    "wall_seconds": 90.644,
+    "cache_summary": null,
+    "files": [
+      "native_02_baseline_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:51:20.137887+02:00"
+  },
+  {
+    "run": "native_03_fast_cold",
+    "config": "fast",
+    "backend": "native",
+    "temperature": "cold",
+    "prompt_id": "c855f71f-1700-4674-a451-b1c58050c922",
+    "wall_seconds": 70.476,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 8/20 steps; estimated block-stack speedup 1.64x; residual diff min/median/max 0.05078/0.10132/0.19629; cache steps [4, 6, 8, 10, 11, 13, 15, 17]",
+    "files": [
+      "native_03_fast_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:52:35.172131+02:00"
+  },
+  {
+    "run": "native_04_fast_warm",
+    "config": "fast",
+    "backend": "native",
+    "temperature": "warm",
+    "prompt_id": "7af69000-5530-400f-87a7-c77f6afcee71",
+    "wall_seconds": 60.819,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 8/20 steps; estimated block-stack speedup 1.64x; residual diff min/median/max 0.05078/0.10132/0.19629; cache steps [4, 6, 8, 10, 11, 13, 15, 17]",
+    "files": [
+      "native_04_fast_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:53:36.054944+02:00"
+  }
+]

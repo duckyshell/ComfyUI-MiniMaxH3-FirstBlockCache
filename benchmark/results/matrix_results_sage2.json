@@ -1,0 +1,119 @@
+[
+  {
+    "run": "sage2_01_baseline_cold",
+    "config": "baseline",
+    "backend": "sage2",
+    "temperature": "cold",
+    "prompt_id": "eee288db-6c79-4b65-a43c-ba3c83165b11",
+    "wall_seconds": 70.517,
+    "cache_summary": null,
+    "files": [
+      "sage2_01_baseline_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:40:04.341376+02:00"
+  },
+  {
+    "run": "sage2_02_baseline_warm",
+    "config": "baseline",
+    "backend": "sage2",
+    "temperature": "warm",
+    "prompt_id": "f4f93ee0-1eeb-4be5-a4c0-fe6e3c6f7a13",
+    "wall_seconds": 58.389,
+    "cache_summary": null,
+    "files": [
+      "sage2_02_baseline_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:41:02.778105+02:00"
+  },
+  {
+    "run": "sage2_03_safe_cold",
+    "config": "safe",
+    "backend": "sage2",
+    "temperature": "cold",
+    "prompt_id": "c9612cd3-fed4-43fa-8a56-f1d9f1a237fb",
+    "wall_seconds": 56.245,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 6/20 steps; estimated block-stack speedup 1.42x; residual diff min/median/max 0.05127/0.09863/0.19629; cache steps [5, 7, 9, 11, 13, 15]",
+    "files": [
+      "sage2_03_safe_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:42:03.426656+02:00"
+  },
+  {
+    "run": "sage2_04_safe_warm",
+    "config": "safe",
+    "backend": "sage2",
+    "temperature": "warm",
+    "prompt_id": "096007fe-6a40-4a0f-bc62-9c92f7a1b8f4",
+    "wall_seconds": 46.371,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 6/20 steps; estimated block-stack speedup 1.42x; residual diff min/median/max 0.05127/0.09863/0.19629; cache steps [5, 7, 9, 11, 13, 15]",
+    "files": [
+      "sage2_04_safe_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:42:49.862417+02:00"
+  },
+  {
+    "run": "sage2_05_fast_cold",
+    "config": "fast",
+    "backend": "sage2",
+    "temperature": "cold",
+    "prompt_id": "0cf92d09-1836-49ad-9e51-9dec3fa78bd6",
+    "wall_seconds": 52.372,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 8/20 steps; estimated block-stack speedup 1.64x; residual diff min/median/max 0.05151/0.10156/0.19629; cache steps [4, 6, 8, 10, 11, 13, 15, 17]",
+    "files": [
+      "sage2_05_fast_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:43:46.675495+02:00"
+  },
+  {
+    "run": "sage2_06_fast_warm",
+    "config": "fast",
+    "backend": "sage2",
+    "temperature": "warm",
+    "prompt_id": "579ab44c-4027-4654-b501-42641363a08e",
+    "wall_seconds": 40.261,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 8/20 steps; estimated block-stack speedup 1.64x; residual diff min/median/max 0.05151/0.10156/0.19629; cache steps [4, 6, 8, 10, 11, 13, 15, 17]",
+    "files": [
+      "sage2_06_fast_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:44:26.964314+02:00"
+  },
+  {
+    "run": "sage2_07_aggressive_cold",
+    "config": "aggressive",
+    "backend": "sage2",
+    "temperature": "cold",
+    "prompt_id": "a36e4d48-7feb-4f8c-bbe8-96909fe139e1",
+    "wall_seconds": 47.294,
+    "cache_summary": "\u001b[32m[INFO]\u001b[0m MiniMax H3 FBCache: cached 10/20 steps; estimated block-stack speedup 1.96x; residual diff min/median/max 0.05200/0.10840/0.23242; cache steps [3, 5, 7, 8, 10, 11, 13, 14, 16, 18]",
+    "files": [
+      "sage2_07_aggressive_cold.mp4"
+    ],
+    "completed_at": "2026-08-07T00:45:18.68706+02:00"
+  },
+  {
+    "run": "sage2_08_aggressive_warm",
+    "config": "aggressive",
+    "backend": "sage2",
+    "temperature": "warm",
+    "prompt_id": "312e5e92-e71d-4c18-9749-45db85ebcc82",
+    "wall_seconds": 37.277,
+    "cache_summary": null,
+    "files": [
+      "sage2_08_aggressive_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:45:56.028594+02:00"
+  },
+  {
+    "run": "sage2_09_baseline_warm",
+    "config": "baseline",
+    "backend": "sage2",
+    "temperature": "warm_confirm",
+    "prompt_id": "812d101f-f086-4317-919e-ada7bc365a88",
+    "wall_seconds": 57.527,
+    "cache_summary": null,
+    "files": [
+      "sage2_09_baseline_warm.mp4"
+    ],
+    "completed_at": "2026-08-07T00:46:53.628109+02:00"
+  }
+]

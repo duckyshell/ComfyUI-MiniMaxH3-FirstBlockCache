@@ -1,0 +1,21 @@
+[project]
+name = "minimax-h3-firstblockcache"
+version = "1.0.0"
+description = "A lightweight FirstBlockCache model patch for native ComfyUI MiniMax H3."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = []
+classifiers = [
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA",
+]
+
+[project.urls]
+Repository = "https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache"
+Documentation = "https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache#readme"
+"Bug Tracker" = "https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache/issues"
+
+[tool.comfy]
+PublisherId = "duckyshell"
+DisplayName = "MiniMax H3 FirstBlockCache"
