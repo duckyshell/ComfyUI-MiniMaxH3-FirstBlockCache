@@ -52,6 +52,9 @@ class CacheContext:
     latent_frames: int | None = None
 
     def clear_tensors(self):
+        # Cache copies live on CPU. ComfyUI 0.35 kitchen malloc_scope=block +
+        # cudaMallocAsync can SIGABRT in cuMemFreeAsync if we drop GPU tensors
+        # that still belong to a block memory pool (see issue #2).
         self.previous_first_residual = None
         self.remaining_blocks_residual = None
         self.first_block_output = None
@@ -63,6 +66,19 @@ class CacheContext:
         self.last_diff = None
         self.video_slice = None
         self.latent_frames = None
+
+
+def _cpu_hold(tensor):
+    if tensor is None or not torch.is_tensor(tensor):
+        return None
+    with _pause_malloc_graph():
+        return tensor.detach().to(device="cpu", dtype=torch.float32).contiguous().clone()
+
+
+def _gpu_match(tensor, ref):
+    if tensor is None or not torch.is_tensor(tensor):
+        return None
+    return tensor.to(device=ref.device, dtype=ref.dtype)
 
 
 class MiniMaxH3FirstBlockCache:
@@ -152,7 +168,7 @@ class MiniMaxH3FirstBlockCache:
         if context is None:
             raise RuntimeError("MiniMax H3 FirstBlockCache was called outside a model execution")
 
-        previous = context.previous_first_residual
+        previous = _gpu_match(context.previous_first_residual, first_residual)
         tail = context.remaining_blocks_residual
         can_compare = previous is not None and tail is not None and previous.shape == first_residual.shape and tail.shape == first_output.shape
         use_cache = False
@@ -180,17 +196,15 @@ class MiniMaxH3FirstBlockCache:
             context.pending_first_residual = None
         else:
             context.consecutive_hits = 0
-            # Cached storage must outlive the current Comfy malloc graph.
-            with _pause_malloc_graph():
-                context.first_block_output = first_output.detach().clone()
-                context.pending_first_residual = first_residual.detach().clone()
+            context.first_block_output = _cpu_hold(first_output)
+            context.pending_first_residual = _cpu_hold(first_residual)
 
     def finish_full_step(self, output):
         context = self.current
         if context is None or context.first_block_output is None or context.pending_first_residual is None:
             raise RuntimeError("MiniMax H3 FirstBlockCache full-step state is incomplete")
-        with _pause_malloc_graph():
-            context.remaining_blocks_residual = (output - context.first_block_output).detach()
+        first_out = _gpu_match(context.first_block_output, output)
+        context.remaining_blocks_residual = _cpu_hold(output - first_out)
         context.previous_first_residual = context.pending_first_residual
         context.first_block_output = None
         context.pending_first_residual = None
@@ -203,7 +217,7 @@ class MiniMaxH3FirstBlockCache:
         self.cached_steps += 1
         # Native H3 updates this buffer in place. Replacing it here frees a
         # parent-scope allocation inside the last block's malloc scope.
-        return first_output.add_(context.remaining_blocks_residual)
+        return first_output.add_(_gpu_match(context.remaining_blocks_residual, first_output))
 
     def summary(self):
         steps = self.full_steps + self.cached_steps
@@ -262,7 +276,7 @@ class MiniMaxH3DeepReuseCache(MiniMaxH3FirstBlockCache):
     @torch.compiler.disable()
     def decide(self, probe, middle_input):
         context = self.current
-        previous = context.previous_first_residual
+        previous = _gpu_match(context.previous_first_residual, probe)
         tail = context.remaining_blocks_residual
         use_cache = (3 < context.call_number <= self.total_steps - 2
                      and context.layout_key is not None and previous is not None and tail is not None
@@ -289,9 +303,8 @@ class MiniMaxH3DeepReuseCache(MiniMaxH3FirstBlockCache):
             self.cached_step_numbers.append(self.full_steps + self.cached_steps + 1)
             context.first_block_output = None
         else:
-            with _pause_malloc_graph():
-                context.first_block_output = middle_input.detach().clone()
-                context.pending_first_residual = probe.detach().clone()
+            context.first_block_output = _cpu_hold(middle_input)
+            context.pending_first_residual = _cpu_hold(probe)
 
     def summary(self):
         steps = self.full_steps + self.cached_steps
@@ -307,10 +320,9 @@ def make_deep_reuse_patch(cache, index, last_index):
         context = cache.current
         if index == 0:
             # This snapshot crosses block scopes, just like the cached residual.
-            with _pause_malloc_graph():
-                context.first_block_output = args["img"].detach().clone()
+            context.first_block_output = _cpu_hold(args["img"])
         if index == 4:
-            probe = args["img"] - context.first_block_output
+            probe = args["img"] - _gpu_match(context.first_block_output, args["img"])
             cache.decide(probe, args["img"])
         middle_end = last_index - 4
         if 4 <= index <= middle_end and context.use_cache:
@@ -329,9 +341,9 @@ def make_block_patch(cache, index, last_index):
         original_block = extra["original_block"]
 
         if index == 0:
-            original_input = args["img"].detach().clone()
+            original_input = _cpu_hold(args["img"])
             output = original_block(args)["img"]
-            cache.decide(output - original_input, output)
+            cache.decide(output - _gpu_match(original_input, output), output)
             return {"img": output}
 
         context = cache.current
