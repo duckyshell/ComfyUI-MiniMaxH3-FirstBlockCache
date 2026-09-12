@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import logging
 import math
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import torch
 
 import comfy.patcher_extension
+
+
+def _pause_malloc_graph():
+    try:
+        from comfy.model_prefetch import pause_malloc_graph
+    except ImportError:
+        return nullcontext()
+    return pause_malloc_graph()
 
 
 @dataclass(frozen=True)
@@ -168,14 +177,17 @@ class MiniMaxH3FirstBlockCache:
             context.pending_first_residual = None
         else:
             context.consecutive_hits = 0
-            context.first_block_output = first_output.detach().clone()
-            context.pending_first_residual = first_residual.detach()
+            # Cached storage must outlive the current Comfy malloc graph.
+            with _pause_malloc_graph():
+                context.first_block_output = first_output.detach().clone()
+                context.pending_first_residual = first_residual.detach().clone()
 
     def finish_full_step(self, output):
         context = self.current
         if context is None or context.first_block_output is None or context.pending_first_residual is None:
             raise RuntimeError("MiniMax H3 FirstBlockCache full-step state is incomplete")
-        context.remaining_blocks_residual = (output - context.first_block_output).detach()
+        with _pause_malloc_graph():
+            context.remaining_blocks_residual = (output - context.first_block_output).detach()
         context.previous_first_residual = context.pending_first_residual
         context.first_block_output = None
         context.pending_first_residual = None
@@ -186,7 +198,9 @@ class MiniMaxH3FirstBlockCache:
         if context is None or context.remaining_blocks_residual is None:
             raise RuntimeError("MiniMax H3 FirstBlockCache has no cached residual")
         self.cached_steps += 1
-        return first_output + context.remaining_blocks_residual
+        # Native H3 updates this buffer in place. Replacing it here frees a
+        # parent-scope allocation inside the last block's malloc scope.
+        return first_output.add_(context.remaining_blocks_residual)
 
     def summary(self):
         steps = self.full_steps + self.cached_steps

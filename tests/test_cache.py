@@ -3,6 +3,8 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import torch
 
@@ -15,6 +17,79 @@ PRESETS = MODULE.PRESETS
 
 
 class CacheTests(unittest.TestCase):
+    def test_persistent_storage_is_allocated_while_graph_paused(self):
+        from torch.utils._python_dispatch import TorchDispatchMode
+
+        paused = False
+        allocations = {}
+
+        @contextmanager
+        def pause():
+            nonlocal paused
+            paused = True
+            try:
+                yield
+            finally:
+                paused = False
+
+        class TrackAllocations(TorchDispatchMode):
+            def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+                out = func(*args, **(kwargs or {}))
+                if isinstance(out, torch.Tensor):
+                    allocations.setdefault(out.untyped_storage().data_ptr(), paused)
+                return out
+
+        cache = self.make_cache()
+        x = torch.zeros(4, 8)
+        residual = torch.ones_like(x)
+        output = x + residual
+        cache.begin_call(x, torch.tensor([800.0]), {})
+        with patch.object(MODULE, "_pause_malloc_graph", pause), TrackAllocations():
+            cache.decide(residual, output)
+            context = cache.current
+            for tensor in (context.first_block_output, context.pending_first_residual):
+                self.assertTrue(allocations[tensor.untyped_storage().data_ptr()])
+            self.assertNotEqual(context.pending_first_residual.data_ptr(), residual.data_ptr())
+            cache.finish_full_step(output + 2)
+            for tensor in (context.remaining_blocks_residual, context.previous_first_residual):
+                self.assertTrue(allocations[tensor.untyped_storage().data_ptr()])
+            expected = output + 2
+            cached_output = cache.finish_cached_step(output)
+            self.assertIs(cached_output, output)
+        torch.testing.assert_close(context.previous_first_residual, residual)
+        torch.testing.assert_close(cached_output, expected)
+        cache.end_call()
+        cache.reset()
+        self.assertFalse(cache.contexts)
+        self.assertIsNone(context.previous_first_residual)
+        self.assertIsNone(context.remaining_blocks_residual)
+
+    def test_older_comfy_without_pause_api_or_module(self):
+        for prefetch in (None, SimpleNamespace()):
+            with self.subTest(prefetch=prefetch), patch.dict(sys.modules, {"comfy.model_prefetch": prefetch}):
+                cache = self.make_cache()
+                self.full_step(cache)
+                self.assertTrue(self.decision(cache))
+                cache.reset()
+
+    def test_sample_exception_releases_pending_cache(self):
+        cache = self.make_cache()
+        context = None
+
+        def fail():
+            nonlocal context
+            cache.begin_call(torch.zeros(4, 8), torch.tensor([800.0]), {})
+            cache.decide(torch.ones(4, 8), torch.ones(4, 8))
+            context = cache.current
+            raise RuntimeError("interrupted block")
+
+        with self.assertRaisesRegex(RuntimeError, "interrupted block"):
+            MODULE.make_sample_wrapper(cache, "test")(fail)
+        self.assertFalse(cache.contexts)
+        self.assertIsNone(cache.current)
+        self.assertIsNone(context.first_block_output)
+        self.assertIsNone(context.pending_first_residual)
+
     def make_cache(self, preset="H3 Fast — 0.10 / max 2"):
         return MiniMaxH3FirstBlockCache(PRESETS[preset], start_sigma=0.9, end_sigma=0.05, block_count=50)
 
