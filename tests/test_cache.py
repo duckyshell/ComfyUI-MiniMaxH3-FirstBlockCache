@@ -48,10 +48,12 @@ class CacheTests(unittest.TestCase):
             cache.decide(residual, output)
             context = cache.current
             for tensor in (context.first_block_output, context.pending_first_residual):
+                self.assertEqual(tensor.device.type, "cpu")
                 self.assertTrue(allocations[tensor.untyped_storage().data_ptr()])
             self.assertNotEqual(context.pending_first_residual.data_ptr(), residual.data_ptr())
             cache.finish_full_step(output + 2)
             for tensor in (context.remaining_blocks_residual, context.previous_first_residual):
+                self.assertEqual(tensor.device.type, "cpu")
                 self.assertTrue(allocations[tensor.untyped_storage().data_ptr()])
             expected = output + 2
             cached_output = cache.finish_cached_step(output)
