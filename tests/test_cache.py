@@ -169,5 +169,85 @@ class CacheTests(unittest.TestCase):
         cache.end_call()
 
 
+class DeepReuseTests(unittest.TestCase):
+    def test_mode_contract_and_manual_values_stay_private(self):
+        required = MODULE.ApplyMiniMaxH3FirstBlockCache.INPUT_TYPES()["required"]
+        self.assertEqual(required["mode"][0], [*PRESETS, "H3 Experimental", MODULE.CUSTOM_MODE])
+        self.assertEqual(required["mode"][1]["default"], "H3 Fast — 0.10 / max 2")
+        self.assertEqual(list(required), ["model", "mode", "threshold", "start_percent", "end_percent",
+                                          "max_consecutive_hits", "temporal_guard"])
+
+        class Model:
+            model_options = {}
+
+            def get_model_object(self, name):
+                if name == "diffusion_model":
+                    return type("MiniMaxH3Model", (), {"blocks": [None] * 50})()
+                return SimpleNamespace(percent_to_sigma=lambda p: 1 - p)
+
+            def clone(self):
+                return Model()
+
+            def set_model_patch_replace(self, *args):
+                pass
+
+            def add_wrapper_with_key(self, *args):
+                pass
+
+        with patch.object(MODULE, "MiniMaxH3DeepReuseCache", wraps=MODULE.MiniMaxH3DeepReuseCache) as factory:
+            MODULE.ApplyMiniMaxH3FirstBlockCache().apply(Model(), MODULE.EXPERIMENTAL_MODE,
+                                                        0.99, 0.99, 0.01, 19, True)
+            factory.assert_called_once_with(50)
+
+    def test_exact_edges_reuse_anchor_gates_and_invalidation(self):
+        cache = MODULE.MiniMaxH3DeepReuseCache(50)
+        cache.total_steps = 20
+        layout = SimpleNamespace(segments=[(0, 4, "video"), (4, 6, "audio")], signature=(0, 2))
+        patches = [MODULE.make_deep_reuse_patch(cache, i, 49) for i in range(50)]
+        counts = [0] * 50
+
+        def step(number, video=1., audio=1., local=None, payload=True):
+            x = torch.zeros(6, 2)
+            cache.begin_call(x, torch.tensor([1000. - number]), {}, {"layout": layout} if payload else None)
+            delta = torch.ones_like(x)
+            delta[:4] *= video
+            delta[4:] *= audio
+            if local is not None:
+                delta[:2] *= local
+            before = list(counts)
+            for i, block in enumerate(patches):
+                def original(args, i=i):
+                    counts[i] += 1
+                    return {"img": args["img"].add_(delta if i < 4 else number)}
+                y = block({"img": x}, {"original_block": original})["img"]
+                self.assertIs(y, x)
+            hit = cache.current.use_cache
+            self.assertEqual([counts[i] - before[i] for i in range(50)],
+                             [1] * 4 + [int(not hit)] * 42 + [1] * 4)
+            cache.end_call()
+            return hit, y
+
+        for n in (1, 2, 3):
+            self.assertFalse(step(n)[0])
+        hit, output = step(4)
+        self.assertTrue(hit)
+        torch.testing.assert_close(output, torch.full_like(output, 4 + 42 * 3 + 4 * 4))
+        self.assertTrue(step(5, video=1.10)[0])
+        self.assertFalse(step(6, video=1.20)[0])  # Compare to last full anchor, not last hit.
+        self.assertFalse(step(7, video=1.20, audio=1.40)[0])
+        self.assertFalse(step(8, video=1.20, audio=1.40, local=1.30)[0])  # Frame guard.
+        for n in range(9, 19):
+            step(n)
+        self.assertFalse(step(19)[0])
+        self.assertFalse(step(20)[0])
+        self.assertFalse(step(21, payload=False)[0])
+        context = next(iter(cache.contexts.values()))
+        cache.reset()
+        self.assertIsNone(context.remaining_blocks_residual)
+        self.assertIsNone(context.first_block_output)
+        self.assertIsNone(context.layout_key)
+        self.assertEqual(cache.total_steps, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

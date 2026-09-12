@@ -34,6 +34,7 @@ PRESETS = {
 }
 
 CUSTOM_MODE = "Custom — manual values"
+EXPERIMENTAL_MODE = "H3 Experimental"
 
 
 @dataclass
@@ -65,6 +66,8 @@ class CacheContext:
 
 
 class MiniMaxH3FirstBlockCache:
+    context_type = CacheContext
+
     def __init__(self, config, start_sigma, end_sigma, block_count):
         self.config = config
         self.start_sigma = start_sigma
@@ -109,7 +112,7 @@ class MiniMaxH3FirstBlockCache:
         sigma = float(timestep.flatten()[0].item()) / 1000.0
         uuids = transformer_options.get("uuids")
         key = tuple(str(value) for value in uuids) if uuids else ("default",)
-        context = self.contexts.setdefault(key, CacheContext())
+        context = self.contexts.setdefault(key, self.context_type())
         signature = self._input_signature(x)
         if context.input_signature != signature or (context.previous_sigma is not None and sigma > context.previous_sigma + 1e-7):
             context.clear_tensors()
@@ -222,6 +225,105 @@ class MiniMaxH3FirstBlockCache:
         return f"cached {self.cached_steps}/{steps} steps; estimated block-stack speedup {block_speedup:.2f}x{details}{guard_details}{hit_details}"
 
 
+@dataclass
+class DeepReuseContext(CacheContext):
+    call_number: int = 0
+    layout_key: tuple | None = None
+
+    def clear_tensors(self):
+        super().clear_tensors()
+        self.call_number = 0
+        self.layout_key = None
+
+
+class MiniMaxH3DeepReuseCache(MiniMaxH3FirstBlockCache):
+    """Reuse the middle stack; evaluate four prefix and four suffix blocks."""
+
+    context_type = DeepReuseContext
+
+    def __init__(self, block_count):
+        super().__init__(None, None, None, block_count)
+        self.total_steps = 0
+
+    def reset(self):
+        super().reset()
+        self.total_steps = 0
+
+    def begin_call(self, x, timestep, transformer_options, minimax_payload=None):
+        super().begin_call(x, timestep, transformer_options, minimax_payload)
+        layout = (minimax_payload or {}).get("layout")
+        layout_key = (tuple(layout.segments), tuple(layout.signature)) if layout is not None else None
+        if self.current.layout_key != layout_key:
+            self.current.clear_tensors()
+            super().begin_call(x, timestep, transformer_options, minimax_payload)
+        self.current.layout_key = layout_key
+        self.current.call_number += 1
+
+    @torch.compiler.disable()
+    def decide(self, probe, middle_input):
+        context = self.current
+        previous = context.previous_first_residual
+        tail = context.remaining_blocks_residual
+        use_cache = (3 < context.call_number <= self.total_steps - 2
+                     and context.layout_key is not None and previous is not None and tail is not None
+                     and previous.shape == probe.shape and tail.shape == middle_input.shape)
+        if use_cache:
+            checked = False
+            for start, stop, kind in context.layout_key[0]:
+                if kind not in ("video", "audio"):
+                    continue
+                checked = True
+                threshold = 0.18 if kind == "video" else 0.30
+                error = (probe[start:stop] - previous[start:stop]).float().abs()
+                reference = previous[start:stop].float().abs()
+                ratio = float((error.mean() / reference.mean().clamp_min(1e-8)).item())
+                use_cache = use_cache and math.isfinite(ratio) and ratio <= threshold
+                if kind == "video" and context.latent_frames and (stop - start) % context.latent_frames == 0:
+                    error = error.reshape(context.latent_frames, -1).mean(1)
+                    reference = reference.reshape(context.latent_frames, -1).mean(1).clamp_min(1e-8)
+                    worst = float((error / reference).max().item())
+                    use_cache = use_cache and math.isfinite(worst) and worst <= threshold * 1.5
+            use_cache = use_cache and checked
+        context.use_cache = use_cache
+        if use_cache:
+            self.cached_step_numbers.append(self.full_steps + self.cached_steps + 1)
+            context.first_block_output = None
+        else:
+            with _pause_malloc_graph():
+                context.first_block_output = middle_input.detach().clone()
+                context.pending_first_residual = probe.detach().clone()
+
+    def summary(self):
+        steps = self.full_steps + self.cached_steps
+        if not steps:
+            return "no model steps"
+        executed = self.full_steps * self.block_count + self.cached_steps * 8
+        return (f"cached {self.cached_steps}/{steps} steps; estimated block-stack speedup "
+                f"{steps * self.block_count / executed:.2f}x; cache steps {self.cached_step_numbers}")
+
+
+def make_deep_reuse_patch(cache, index, last_index):
+    def patch(args, extra):
+        context = cache.current
+        if index == 0:
+            # This snapshot crosses block scopes, just like the cached residual.
+            with _pause_malloc_graph():
+                context.first_block_output = args["img"].detach().clone()
+        if index == 4:
+            probe = args["img"] - context.first_block_output
+            cache.decide(probe, args["img"])
+        middle_end = last_index - 4
+        if 4 <= index <= middle_end and context.use_cache:
+            output = cache.finish_cached_step(args["img"]) if index == middle_end else args["img"]
+        else:
+            output = extra["original_block"](args)["img"]
+            if index == middle_end:
+                cache.finish_full_step(output)
+        return {"img": output}
+
+    return patch
+
+
 def make_block_patch(cache, index, last_index):
     def patch(args, extra):
         original_block = extra["original_block"]
@@ -265,6 +367,9 @@ def make_diffusion_wrapper(cache):
 def make_sample_wrapper(cache, preset):
     def wrapper(executor, *args, **kwargs):
         cache.reset()
+        if isinstance(cache, MiniMaxH3DeepReuseCache):
+            sigmas = args[3] if len(args) > 3 else kwargs.get("sigmas")
+            cache.total_steps = max(len(sigmas) - 1, 0) if sigmas is not None else 0
         logging.info("MiniMax H3 FBCache enabled: %s", preset)
         try:
             return executor(*args, **kwargs)
@@ -281,7 +386,7 @@ class ApplyMiniMaxH3FirstBlockCache:
         return {
             "required": {
                 "model": ("MODEL",),
-                "mode": ([*PRESETS, CUSTOM_MODE], {"default": "H3 Fast — 0.10 / max 2"}),
+                "mode": ([*PRESETS, EXPERIMENTAL_MODE, CUSTOM_MODE], {"default": "H3 Fast — 0.10 / max 2"}),
                 "threshold": ("FLOAT", {"default": 0.10, "min": 0.0, "max": 1.0, "step": 0.005}),
                 "start_percent": ("FLOAT", {"default": 0.10, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "end_percent": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -293,7 +398,7 @@ class ApplyMiniMaxH3FirstBlockCache:
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3/optimization"
-    DESCRIPTION = "MiniMax H3 FirstBlockCache with three calibrated presets and a manual Custom mode. Manual values only apply in Custom mode."
+    DESCRIPTION = "MiniMax H3 FirstBlockCache with three calibrated presets, experimental deep reuse, and a manual Custom mode. Manual values only apply in Custom mode."
 
     def apply(self, model, mode, threshold, start_percent, end_percent, max_consecutive_hits, temporal_guard):
         if mode == CUSTOM_MODE:
@@ -302,6 +407,9 @@ class ApplyMiniMaxH3FirstBlockCache:
             config = PresetConfig(threshold, start_percent, end_percent, max_consecutive_hits, temporal_guard)
             label = (f"Custom — threshold {threshold:.3f}, window {start_percent:.2f}-{end_percent:.2f}, "
                      f"max {max_consecutive_hits}, temporal guard {temporal_guard}")
+        elif mode == EXPERIMENTAL_MODE:
+            config = None
+            label = mode
         else:
             config = PRESETS[mode]
             label = mode
@@ -328,14 +436,21 @@ class ApplyMiniMaxH3FirstBlockCache:
         if conflicts:
             raise ValueError("MiniMax H3 FirstBlockCache conflicts with another DiT block replacement node. Connect it directly after the diffusion model loader.")
 
-        model_sampling = model.get_model_object("model_sampling")
-        start_sigma = float(model_sampling.percent_to_sigma(config.start_percent))
-        end_sigma = float(model_sampling.percent_to_sigma(config.end_percent))
+        if mode == EXPERIMENTAL_MODE:
+            if block_count <= 8:
+                raise ValueError("H3 Experimental requires more than eight transformer blocks")
+            cache = MiniMaxH3DeepReuseCache(block_count)
+            block_patch = make_deep_reuse_patch
+        else:
+            model_sampling = model.get_model_object("model_sampling")
+            start_sigma = float(model_sampling.percent_to_sigma(config.start_percent))
+            end_sigma = float(model_sampling.percent_to_sigma(config.end_percent))
+            cache = MiniMaxH3FirstBlockCache(config, start_sigma, end_sigma, block_count)
+            block_patch = make_block_patch
 
         patched = model.clone()
-        cache = MiniMaxH3FirstBlockCache(config, start_sigma, end_sigma, block_count)
         for index in range(block_count):
-            patched.set_model_patch_replace(make_block_patch(cache, index, block_count - 1), "dit", "double_block", index)
+            patched.set_model_patch_replace(block_patch(cache, index, block_count - 1), "dit", "double_block", index)
 
         key = f"minimax_h3_first_block_cache_{id(cache)}"
         patched.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, key, make_diffusion_wrapper(cache))
