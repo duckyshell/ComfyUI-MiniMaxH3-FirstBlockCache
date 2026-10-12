@@ -26,6 +26,9 @@ Tested on an NVIDIA RTX 5090 using ComfyUI portable on Windows. The cache node c
 - `H3 Aggressive`: threshold `0.12`, the same protected window and hit limit. Faster, with greater trajectory drift.
 - `H3 Experimental`: new deep-reuse cache mode, ~1.6× vs Native.
 - `Custom`: manual threshold, start/end percentages, consecutive-hit limit, and optional temporal guard.
+- `Off`: passes the incoming model through unchanged without adding cache patches or wrappers.
+
+Promote the `mode` widget to a subgraph to switch presets or turn caching off from the same dropdown. `Off` preserves any patches already present on the incoming model.
 
 Manual controls are disabled in the UI unless `Custom` is selected. The named presets always keep their calibrated values. The optional temporal guard checks the most changed target-video latent frame in addition to the global mean, helping catch local motion that a global average can hide.
 

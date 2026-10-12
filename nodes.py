@@ -35,6 +35,7 @@ PRESETS = {
 
 CUSTOM_MODE = "Custom — manual values"
 EXPERIMENTAL_MODE = "H3 Experimental"
+OFF_MODE = "Off"
 
 
 @dataclass
@@ -386,7 +387,7 @@ class ApplyMiniMaxH3FirstBlockCache:
         return {
             "required": {
                 "model": ("MODEL",),
-                "mode": ([*PRESETS, EXPERIMENTAL_MODE, CUSTOM_MODE], {"default": "H3 Fast — 0.10 / max 2"}),
+                "mode": ([*PRESETS, EXPERIMENTAL_MODE, CUSTOM_MODE, OFF_MODE], {"default": "H3 Fast — 0.10 / max 2"}),
                 "threshold": ("FLOAT", {"default": 0.10, "min": 0.0, "max": 1.0, "step": 0.005}),
                 "start_percent": ("FLOAT", {"default": 0.10, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "end_percent": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -401,6 +402,9 @@ class ApplyMiniMaxH3FirstBlockCache:
     DESCRIPTION = "MiniMax H3 FirstBlockCache with three calibrated presets, experimental deep reuse, and a manual Custom mode. Manual values only apply in Custom mode."
 
     def apply(self, model, mode, threshold, start_percent, end_percent, max_consecutive_hits, temporal_guard):
+        if mode == OFF_MODE:
+            return (model,)
+
         if mode == CUSTOM_MODE:
             if start_percent >= end_percent:
                 raise ValueError("Custom start_percent must be smaller than end_percent")

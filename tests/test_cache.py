@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import torch
 
@@ -169,10 +169,29 @@ class CacheTests(unittest.TestCase):
         cache.end_call()
 
 
+class NodeTests(unittest.TestCase):
+    def test_off_returns_input_without_inspection_or_patching(self):
+        model = Mock()
+        model.model_options = {"transformer_options": {"easycache": object()}}
+        options = model.model_options
+        with patch.object(MODULE, "MiniMaxH3FirstBlockCache") as factory:
+            result = MODULE.ApplyMiniMaxH3FirstBlockCache().apply(
+                model, MODULE.OFF_MODE, 0.99, 0.99, 0.01, 19, True)
+        self.assertIs(result[0], model)
+        self.assertIs(model.model_options, options)
+        self.assertEqual(model.mock_calls, [])
+        factory.assert_not_called()
+
+    def test_off_accepts_any_model_without_validation(self):
+        model = object()
+        self.assertIs(MODULE.ApplyMiniMaxH3FirstBlockCache().apply(
+            model, MODULE.OFF_MODE, 0, 1, 0, 1, False)[0], model)
+
+
 class DeepReuseTests(unittest.TestCase):
     def test_mode_contract_and_manual_values_stay_private(self):
         required = MODULE.ApplyMiniMaxH3FirstBlockCache.INPUT_TYPES()["required"]
-        self.assertEqual(required["mode"][0], [*PRESETS, "H3 Experimental", MODULE.CUSTOM_MODE])
+        self.assertEqual(required["mode"][0], [*PRESETS, "H3 Experimental", MODULE.CUSTOM_MODE, MODULE.OFF_MODE])
         self.assertEqual(required["mode"][1]["default"], "H3 Fast — 0.10 / max 2")
         self.assertEqual(list(required), ["model", "mode", "threshold", "start_percent", "end_percent",
                                           "max_consecutive_hits", "temporal_guard"])
