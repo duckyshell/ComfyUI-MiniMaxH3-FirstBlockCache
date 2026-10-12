@@ -24,7 +24,6 @@ Tested on an NVIDIA RTX 5090 using ComfyUI portable on Windows. The cache node c
 - `H3 Safe`: threshold `0.08`, protected 10–95% denoising window, at most two consecutive cache hits.
 - `H3 Fast`: threshold `0.10`, the same protected window and hit limit. Recommended default.
 - `H3 Aggressive`: threshold `0.12`, the same protected window and hit limit. Faster, with greater trajectory drift.
-- `H3 Experimental`: new deep-reuse cache mode, ~1.6× vs Native.
 - `Custom`: manual threshold, start/end percentages, consecutive-hit limit, and optional temporal guard.
 - `Off`: passes the incoming model through unchanged without adding cache patches or wrappers.
 
@@ -33,6 +32,8 @@ Promote the `mode` widget to a subgraph to switch presets or turn caching off fr
 Manual controls are disabled in the UI unless `Custom` is selected. The named presets always keep their calibrated values. The optional temporal guard checks the most changed target-video latent frame in addition to the global mean, helping catch local motion that a global average can hide.
 
 The presets are tuned for standard H3 sampling around 20 steps. Higher step counts can benefit even more from caching, while some alternative sampling setups may produce little or no reuse; check the ComfyUI console for the reported cache hit count.
+
+`H3 Experimental` has been removed because it can substantially degrade audio quality. If an older workflow used it, select `H3 Fast` or another supported mode before running.
 
 ## Installation
 
